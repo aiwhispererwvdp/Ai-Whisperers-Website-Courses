@@ -1,0 +1,102 @@
+// Test Prisma schema using SQLite for faster test execution
+// This is a simplified version of the main schema optimized for testing
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/lib/test-prisma-client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./test.db"
+}
+
+// Simplified User model for testing
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  firstName     String?
+  lastName      String?
+  name          String?
+  company       String?
+  experience    String?
+  goals         String?
+  marketingConsent Boolean @default(false)
+  
+  // Relations for testing
+  enrollments   Enrollment[]
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("users")
+}
+
+// Simplified Course model for testing
+model Course {
+  id              String        @id @default(cuid())
+  title           String
+  description     String
+  price           Real          // SQLite uses REAL for decimal
+  level           String        // Simplified enum as string
+  category        String
+  popular         Boolean       @default(false)
+  rating          Real          @default(0)
+  students        Int           @default(0)
+  
+  // Relations
+  enrollments     Enrollment[]
+  
+  // Timestamps
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("courses")
+}
+
+// Simplified Enrollment model for testing
+model Enrollment {
+  id              String        @id @default(cuid())
+  userId          String
+  courseId        String
+  progress        Real          @default(0) // 0-100
+  
+  // Payment information
+  paymentType     String
+  pricePaid       Real
+  paymentStatus   String        @default("PENDING")
+  paymentId       String?
+  
+  // Access control
+  isActive        Boolean       @default(true)
+  timeSpent       Int           @default(0)
+  
+  // Relations
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course          Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([userId, courseId])
+  @@map("enrollments")
+}
+
+// Simplified Payment model for testing
+model Payment {
+  id              String        @id @default(cuid())
+  userId          String
+  amount          Real
+  currency        String        @default("USD")
+  status          String
+  paymentMethod   String
+  paypalOrderId   String?
+  
+  // Timestamps
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("payments")
+}

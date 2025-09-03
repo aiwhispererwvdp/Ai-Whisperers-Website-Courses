@@ -1,0 +1,511 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for authentication and student management
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  firstName     String?
+  lastName      String?
+  name          String?
+  image         String?
+  company       String?
+  role          UserRole  @default(STUDENT)
+  
+  // Authentication fields
+  emailVerified DateTime?
+  accounts      Account[]
+  sessions      Session[]
+  
+  // Student-specific fields
+  experience    String?   // 'complete-beginner', 'some-exposure', etc.
+  goals         String?   // Learning goals text
+  marketingConsent Boolean @default(false)
+  
+  // Learning progress
+  enrollments   Enrollment[]
+  progress      UserProgress?
+  certificates  Certificate[]
+  
+  // Marketing and communication
+  newsletterSubscribed Boolean   @default(false)
+  lastLoginAt          DateTime?
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Course and curriculum models
+model Course {
+  id              String        @id @default(cuid())
+  title           String
+  subtitle        String?
+  description     String
+  level           CourseLevel
+  difficulty      Int           // 1-3
+  duration        String        // "8 weeks"
+  totalMinutes    Int
+  lessonCount     Int
+  price           Decimal       @db.Decimal(10, 2)
+  originalPrice   Decimal?      @db.Decimal(10, 2)
+  category        CourseCategory
+  
+  // Content and structure
+  targetAudience  String
+  prerequisites   String
+  learningOutcomes String[]
+  keyHighlights   String[]
+  technologies    String[]
+  
+  // Visual styling
+  color           String
+  bgColor         String
+  textColor       String
+  borderColor     String
+  
+  // Marketing flags
+  popular         Boolean       @default(false)
+  unique          Boolean       @default(false)
+  premium         Boolean       @default(false)
+  
+  // Social proof
+  rating          Decimal       @default(0) @db.Decimal(2, 1)
+  students        Int           @default(0)
+  
+  // Course content
+  modules         CourseModule[]
+  lessons         CourseLesson[]
+  
+  // Enrollment tracking
+  enrollments     Enrollment[]
+  bundles         BundleCourse[]
+  
+  // Meta information
+  instructor      String?
+  certificateAwarded Boolean    @default(true)
+  isActive        Boolean       @default(true)
+  
+  // Timestamps
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  publishedAt     DateTime?
+
+  @@map("courses")
+}
+
+model CourseModule {
+  id            String         @id @default(cuid())
+  courseId      String
+  title         String
+  description   String?
+  order         Int
+  duration      Int            // in minutes
+  objectives    String[]
+  
+  // Module content
+  lessons       CourseLesson[]
+  activities    Json[]         // Course activities array
+  resources     String[]
+  prerequisites String[]
+  
+  // Progress tracking
+  completionRate Decimal?      @db.Decimal(5, 2)
+  
+  course        Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@map("course_modules")
+}
+
+model CourseLesson {
+  id            String         @id @default(cuid())
+  courseId      String
+  moduleId      String?
+  title         String
+  description   String?
+  content       String         @db.Text
+  duration      Int            // in minutes
+  order         Int
+  
+  // Lesson content
+  objectives    String[]
+  resources     String[]
+  activities    Json[]
+  
+  // Access control
+  isPreview     Boolean        @default(false)
+  requiresEnrollment Boolean   @default(true)
+  
+  // Relations
+  course        Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  module        CourseModule?  @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  progress      LessonProgress[]
+  
+  // Timestamps
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@map("course_lessons")
+}
+
+// Enrollment and progress tracking
+model Enrollment {
+  id              String          @id @default(cuid())
+  userId          String
+  courseId        String
+  enrollmentDate  DateTime        @default(now())
+  completionDate  DateTime?
+  progress        Decimal         @default(0) @db.Decimal(5, 2) // 0-100
+  
+  // Payment information
+  paymentType     PaymentType
+  pricePaid       Decimal         @db.Decimal(10, 2)
+  paymentDate     DateTime
+  paymentStatus   PaymentStatus   @default(PENDING)
+  paymentId       String?         // PayPal order ID
+  
+  // Access control
+  expirationDate  DateTime?
+  isActive        Boolean         @default(true)
+  
+  // Progress tracking
+  currentLessonId String?
+  timeSpent       Int             @default(0) // in minutes
+  lastAccessDate  DateTime        @default(now())
+  
+  // Relations
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course          Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessonProgress  LessonProgress[]
+  certificate     Certificate?
+  
+  // Timestamps
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([userId, courseId])
+  @@map("enrollments")
+}
+
+model LessonProgress {
+  id            String      @id @default(cuid())
+  enrollmentId  String
+  lessonId      String
+  userId        String
+  
+  // Progress tracking
+  isCompleted   Boolean     @default(false)
+  completedAt   DateTime?
+  timeSpent     Int         @default(0) // in minutes
+  progressPercentage Decimal @default(0) @db.Decimal(5, 2)
+  
+  // Relations
+  enrollment    Enrollment  @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lesson        CourseLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([enrollmentId, lessonId])
+  @@map("lesson_progress")
+}
+
+// User progress and statistics
+model UserProgress {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  
+  // Overall statistics
+  totalCoursesEnrolled  Int      @default(0)
+  totalCoursesCompleted Int      @default(0)
+  totalTimeSpent        Int      @default(0) // in minutes
+  averageRating         Decimal? @db.Decimal(3, 2)
+  
+  // Learning path progress
+  currentLearningPath   String?
+  learningPathProgress  Decimal? @db.Decimal(5, 2)
+  
+  // Achievements and badges
+  badges                String[]
+  skillsAcquired        String[]
+  
+  // Preferences
+  learningStyle         LearningStyle?
+  preferredPace         LearningPace?
+  interests             String[]
+  
+  // Relations
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("user_progress")
+}
+
+// Certification system
+model Certificate {
+  id            String      @id @default(cuid())
+  userId        String
+  enrollmentId  String      @unique
+  courseId      String
+  
+  // Certificate details
+  certificateId String      @unique // Public certificate ID
+  title         String
+  description   String?
+  issuedDate    DateTime    @default(now())
+  expiryDate    DateTime?
+  
+  // Certificate metadata
+  credentialUrl String?
+  verificationCode String? @unique
+  skills        String[]
+  
+  // Relations
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrollment    Enrollment  @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("certificates")
+}
+
+// Course bundles and packages
+model Bundle {
+  id              String         @id @default(cuid())
+  title           String
+  description     String
+  originalPrice   Decimal        @db.Decimal(10, 2)
+  bundlePrice     Decimal        @db.Decimal(10, 2)
+  savings         Decimal        @db.Decimal(10, 2)
+  popular         Boolean        @default(false)
+  
+  // Bundle-specific features
+  bonusContent    String[]
+  additionalResources String[]
+  communityAccess Boolean        @default(false)
+  
+  // Pricing tiers
+  teamDiscount    Decimal?       @db.Decimal(5, 2) // percentage
+  enterpriseDiscount Decimal?    @db.Decimal(5, 2) // percentage
+  
+  // Relations
+  courses         BundleCourse[]
+  
+  // Meta information
+  isActive        Boolean        @default(true)
+  
+  // Timestamps
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@map("bundles")
+}
+
+model BundleCourse {
+  id       String @id @default(cuid())
+  bundleId String
+  courseId String
+  order    Int    @default(0)
+  
+  bundle   Bundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
+  @@unique([bundleId, courseId])
+  @@map("bundle_courses")
+}
+
+// Payment and transaction models
+model Payment {
+  id              String        @id @default(cuid())
+  userId          String
+  enrollmentId    String?
+  
+  // Payment details
+  amount          Decimal       @db.Decimal(10, 2)
+  currency        String        @default("USD")
+  status          PaymentStatus
+  paymentMethod   PaymentMethod
+  
+  // External payment IDs
+  paypalOrderId   String?
+  paypalPaymentId String?
+  stripePaymentId String?
+  
+  // Payment metadata
+  description     String?
+  metadata        Json?
+  failureReason   String?
+  
+  // Timestamps
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  completedAt     DateTime?
+
+  @@map("payments")
+}
+
+// Blog and content models (for SEO and marketing)
+model BlogPost {
+  id          String      @id @default(cuid())
+  title       String
+  slug        String      @unique
+  excerpt     String?
+  content     String      @db.Text
+  
+  // SEO and metadata
+  metaTitle   String?
+  metaDescription String?
+  tags        String[]
+  categories  String[]
+  
+  // Publishing
+  published   Boolean     @default(false)
+  publishedAt DateTime?
+  authorId    String?
+  
+  // Analytics
+  views       Int         @default(0)
+  shares      Int         @default(0)
+  
+  // Timestamps
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("blog_posts")
+}
+
+// Analytics and tracking
+model Analytics {
+  id        String   @id @default(cuid())
+  eventType String   // 'page_view', 'course_enrollment', 'lesson_completion', etc.
+  eventData Json
+  userId    String?
+  sessionId String?
+  
+  // Web vitals and performance
+  pageUrl   String?
+  userAgent String?
+  country   String?
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+
+  @@map("analytics")
+}
+
+// Enums
+enum UserRole {
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum CourseLevel {
+  Beginner
+  Intermediate
+  Advanced
+  Executive
+}
+
+enum CourseCategory {
+  foundations
+  development
+  web_development
+  business
+}
+
+enum PaymentType {
+  individual
+  team
+  enterprise
+  bundle
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  PAYPAL
+  STRIPE
+  MANUAL
+}
+
+enum LearningStyle {
+  visual
+  hands_on
+  theoretical
+  mixed
+}
+
+enum LearningPace {
+  fast
+  medium
+  slow
+}

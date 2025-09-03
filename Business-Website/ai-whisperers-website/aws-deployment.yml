@@ -1,0 +1,194 @@
+# AWS Deployment Pipeline Configuration
+# This configuration supports hybrid deployment with Vercel as primary and AWS as backup/additional services
+
+# AWS Services Integration Plan:
+# - S3: Static assets and course materials storage
+# - CloudFront: CDN for global content delivery
+# - Route 53: Custom domain management
+# - RDS/Aurora: Database hosting option
+# - Lambda: Serverless functions for specific tasks
+# - SES: Email service integration
+
+AWSServices:
+  # S3 Configuration for Static Assets
+  S3:
+    Buckets:
+      - Name: ai-whisperers-assets
+        Purpose: Course materials, images, videos
+        Region: us-east-1
+        PublicAccess: true
+        CORS:
+          - AllowedOrigins: 
+              - https://ai-whisperers.com
+              - https://ai-whisperers-staging.vercel.app
+            AllowedMethods: [GET, HEAD]
+            AllowedHeaders: ['*']
+        
+      - Name: ai-whisperers-backups
+        Purpose: Database and content backups
+        Region: us-east-1
+        PublicAccess: false
+        Versioning: enabled
+
+  # CloudFront CDN Configuration
+  CloudFront:
+    Distributions:
+      - Name: ai-whisperers-assets-cdn
+        Origins:
+          - DomainName: ai-whisperers-assets.s3.amazonaws.com
+            Id: S3-ai-whisperers-assets
+        DefaultCacheBehavior:
+          TargetOriginId: S3-ai-whisperers-assets
+          ViewerProtocolPolicy: redirect-to-https
+          CachingDisabled: false
+          TTL:
+            Default: 86400  # 24 hours
+            Max: 31536000   # 1 year
+        PriceClass: PriceClass_100  # Use only North America and Europe
+
+  # Route 53 DNS Configuration
+  Route53:
+    HostedZone:
+      Name: ai-whisperers.com
+    RecordSets:
+      - Name: ai-whisperers.com
+        Type: A
+        AliasTarget:
+          DNSName: !GetAtt VercelDistribution.DomainName
+          HostedZoneId: !GetAtt VercelDistribution.HostedZoneId
+      
+      - Name: assets.ai-whisperers.com
+        Type: CNAME
+        ResourceRecords:
+          - !GetAtt CloudFrontDistribution.DomainName
+
+  # SES Email Service Configuration
+  SES:
+    Domain: ai-whisperers.com
+    Identities:
+      - noreply@ai-whisperers.com
+      - support@ai-whisperers.com
+      - courses@ai-whisperers.com
+    ConfigurationSet:
+      Name: ai-whisperers-emails
+      DeliveryOptions:
+        TlsPolicy: Require
+      ReputationTracking: enabled
+      EventDestinations:
+        - Name: course-enrollment-events
+          CloudWatchDestination:
+            DimensionConfigurations:
+              - DimensionName: MessageTag
+                DimensionValueSource: messageTag
+                DefaultDimensionValue: ai-whisperers
+
+  # Lambda Functions for Specific Tasks
+  Lambda:
+    Functions:
+      - Name: course-enrollment-processor
+        Runtime: nodejs18.x
+        Handler: index.handler
+        Purpose: Process course enrollments and send welcome emails
+        Environment:
+          DATABASE_URL: ${DATABASE_URL}
+          SES_REGION: us-east-1
+        
+      - Name: payment-webhook-processor
+        Runtime: nodejs18.x
+        Handler: webhook.handler
+        Purpose: Process PayPal/Stripe payment webhooks
+        Environment:
+          DATABASE_URL: ${DATABASE_URL}
+          WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+
+# Environment Variables for AWS Integration
+EnvironmentVariables:
+  Development:
+    AWS_REGION: us-east-1
+    AWS_S3_BUCKET: ai-whisperers-assets-dev
+    AWS_CLOUDFRONT_DOMAIN: dev-assets.ai-whisperers.com
+    
+  Staging:
+    AWS_REGION: us-east-1
+    AWS_S3_BUCKET: ai-whisperers-assets-staging
+    AWS_CLOUDFRONT_DOMAIN: staging-assets.ai-whisperers.com
+    
+  Production:
+    AWS_REGION: us-east-1
+    AWS_S3_BUCKET: ai-whisperers-assets
+    AWS_CLOUDFRONT_DOMAIN: assets.ai-whisperers.com
+
+# Deployment Strategy
+DeploymentStrategy:
+  Primary: Vercel
+    - Next.js application hosting
+    - Automatic deployments from GitHub
+    - Preview deployments for PRs
+    - Built-in analytics and monitoring
+    
+  AWS_Integration: Complementary services
+    - S3 for large file storage (course videos, materials)
+    - CloudFront for global CDN
+    - SES for transactional emails
+    - Lambda for background processing
+    - Route 53 for custom domain management
+
+# Cost Optimization
+CostOptimization:
+  S3:
+    - Use Intelligent Tiering for automatic cost optimization
+    - Set lifecycle policies for old course materials
+    - Compress images and videos
+    
+  CloudFront:
+    - Use PriceClass_100 (North America + Europe only)
+    - Set appropriate cache headers
+    - Enable compression
+    
+  Lambda:
+    - Use ARM64 architecture for better price/performance
+    - Set appropriate memory allocation
+    - Monitor and optimize execution time
+
+# Security Configuration
+Security:
+  S3:
+    - Block public access except for allowed domains
+    - Enable encryption at rest (AES-256)
+    - Use IAM policies for fine-grained access
+    
+  CloudFront:
+    - Enable WAF for protection against common attacks
+    - Use signed URLs for premium content
+    - Restrict access by geographic location if needed
+    
+  Lambda:
+    - Use least privilege IAM roles
+    - Enable VPC configuration if database access needed
+    - Monitor function invocations and errors
+
+# Monitoring and Alerts
+Monitoring:
+  CloudWatch:
+    - S3 request metrics and errors
+    - CloudFront cache hit ratio and errors
+    - Lambda function duration and errors
+    - SES bounce and complaint rates
+    
+  Alerts:
+    - High error rates (>5%)
+    - Unusual traffic patterns
+    - Cost thresholds exceeded
+    - Failed payment processing
+
+# Disaster Recovery
+DisasterRecovery:
+  Backups:
+    - Daily database backups to S3
+    - Course content versioning in S3
+    - Configuration backups
+    
+  Recovery:
+    - Multi-region S3 replication for critical content
+    - CloudFront serves cached content during outages
+    - Database point-in-time recovery capability
